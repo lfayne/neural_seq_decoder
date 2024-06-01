@@ -17,7 +17,7 @@ from neural_decoder.transformer_decoder_trainer import loadModel as transformerL
 from neural_decoder.dataset import SpeechDataset
 from neural_decoder.dataset import CompleteSpeechDataset
 
-def padding(batch):
+def complete_padding(batch):
     X, y, X_lens, y_lens, days, transcripts = zip(*batch)
     X_padded = pad_sequence(X, batch_first=True, padding_value=0)
     y_padded = pad_sequence(y, batch_first=True, padding_value=0)
@@ -29,6 +29,19 @@ def padding(batch):
         torch.stack(y_lens),
         torch.stack(days),
         transcripts
+    )
+
+def padding(batch):
+    X, y, X_lens, y_lens, days = zip(*batch)
+    X_padded = pad_sequence(X, batch_first=True, padding_value=0)
+    y_padded = pad_sequence(y, batch_first=True, padding_value=0)
+
+    return (
+        X_padded,
+        y_padded,
+        torch.stack(X_lens),
+        torch.stack(y_lens),
+        torch.stack(days)
     )
 
 def plot_loss(paths):
@@ -80,7 +93,7 @@ def inference(model_path, model_type, data_path, ds, args):
         shuffle=False,
         num_workers=0,
         pin_memory=True,
-        collate_fn=padding,
+        collate_fn=complete_padding,
     )
 
     with torch.no_grad():
@@ -159,6 +172,7 @@ def phoneme_eval(model_path, model_type, data_path, ds, args):
     
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
 
+    print("Evalutating...")
     with torch.no_grad():
         model.eval()
         allLoss = []
@@ -206,12 +220,13 @@ def phoneme_eval(model_path, model_type, data_path, ds, args):
         avgDayLoss = np.sum(allLoss) / len(dataset_loader)
         cer = total_edit_distance / total_seq_length
 
-    print(avgDayLoss, cer)
+    print("Average CTC Loss:", avgDayLoss)
+    print("Phoneme Error Rate:", cer)
     return
 
 # Note: cannot test on "competition" partition
 def main():
-    # phoneme_eval("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
+    phoneme_eval("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
     # phoneme_eval("saved_models/pt_transformer_baseline", "transformer", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
     # plot_loss(["saved_models/pt_gru_baseline", "saved_models/pt_transformer_baseline", "saved_models/pt_transformer_baseline_unfold"])
     # with open("src/neural_decoder/ptDecoder_ctc", "rb") as handle:
@@ -220,7 +235,7 @@ def main():
     # dataset = loaded_data["train"]
     # print(sum([len(x.split()) for x in dataset[0]['transcriptions']]) / (sum(dataset[0]['timeSeriesLens']) * 20 / 1000) * 60)
     # print((dataset[0]['timeSeriesLens'] * 20 / 1000))
-    inference("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
+    # inference("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
     return
 
 if __name__ == "__main__":
