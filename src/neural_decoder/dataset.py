@@ -76,5 +76,5 @@ class CompleteSpeechDataset(Dataset):
             torch.tensor(self.neural_time_bins[idx], dtype=torch.int32),
             torch.tensor(self.phone_seq_lens[idx], dtype=torch.int32),
             torch.tensor(self.days[idx], dtype=torch.int64),
-            (self.transcriptions[idx]).split()
+            self.transcriptions[idx]
         )

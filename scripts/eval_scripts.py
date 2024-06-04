@@ -109,9 +109,6 @@ def inference(model_path, model_type, data_path, ds, args):
                 y_len.to(device),
                 testDayIdx.to(device),
             )
-
-            print(type(transcripts), transcripts[0])
-            return
         
             if model_type == "gru":
                 pred = model.forward(X, testDayIdx)
@@ -138,13 +135,37 @@ def inference(model_path, model_type, data_path, ds, args):
                 )
 
                 output['logits'].append(pred[iterIdx, :, :])
-                output['logitLengths'].append(X_len[iterIdx])
+                output['logitLengths'].append(X_len[iterIdx].item())
                 output['decodedSeqs'].append(decodedSeq)
                 output['editDistances'].append(matcher.distance())
-                output['trueSeqLengths'].append(y_len[iterIdx])
+                output['trueSeqLengths'].append(y_len[iterIdx].item())
                 output['trueSeqs'].append(y[iterIdx])
                 output['transcriptions'].append(transcripts[iterIdx])
-                output['seqErrorRate'].append()
+
+    max_logits = 0
+    max_decode = 0
+    for i in range(len(output['logits'])):
+        max_logits = max(max_logits, output['logits'][i].shape[0])
+        max_decode = max(max_decode, output['decodedSeqs'][i].shape[0])
+
+    logits = torch.zeros((len(output['logits']), max_logits, output['logits'][0].shape[1]))
+    decode = torch.zeros((len(output['logits']), output['trueSeqs'][0].shape[0]))
+    true = torch.zeros((len(output['logits']), output['trueSeqs'][0].shape[0]))
+    transcriptions = torch.zeros((len(output['logits']), output['trueSeqs'][0].shape[0]))
+
+    for i in range(len(output['logits'])):
+        logits[i,:output['logits'][i].shape[0],:] = output['logits'][i]
+        decode[i,:len(output['decodedSeqs'][i])] = torch.from_numpy(output['decodedSeqs'][i])
+        true[i,:] = output['trueSeqs'][i]
+        transcriptions[i,:len(output['transcriptions'][i])] = torch.tensor([ord(c) for c in output['transcriptions'][i]], dtype=int)
+
+    output['logitLengths'] = logits
+    output['decodedSeqs'] = decode
+    output['trueSeqs'] = true
+    output['transcriptions'] = transcriptions
+
+    with open("/".join(data_path.split("/")[:-1]) + "/" + model_path.split("/")[-1] + "_" + ds, "wb") as file:
+        pickle.dump(output, file)
 
     return output
 
@@ -227,7 +248,7 @@ def phoneme_eval(model_path, model_type, data_path, ds, args):
 # Note: cannot test on "competition" partition
 def main():
     phoneme_eval("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
-    # phoneme_eval("saved_models/pt_transformer_baseline", "transformer", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
+    phoneme_eval("saved_models/pt_transformer_baseline", "transformer", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
     # plot_loss(["saved_models/pt_gru_baseline", "saved_models/pt_transformer_baseline", "saved_models/pt_transformer_baseline_unfold"])
     # with open("src/neural_decoder/ptDecoder_ctc", "rb") as handle:
     #     loaded_data = pickle.load(handle)
@@ -235,7 +256,7 @@ def main():
     # dataset = loaded_data["train"]
     # print(sum([len(x.split()) for x in dataset[0]['transcriptions']]) / (sum(dataset[0]['timeSeriesLens']) * 20 / 1000) * 60)
     # print((dataset[0]['timeSeriesLens'] * 20 / 1000))
-    # inference("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "train", {"n_days": 24, "batch_size": 64})
+    # inference("saved_models/pt_gru_baseline", "gru", "src/neural_decoder/ptDecoder_ctc", "test", {"n_days": 24, "batch_size": 64})
     return
 
 if __name__ == "__main__":
