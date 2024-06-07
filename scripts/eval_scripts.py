@@ -6,7 +6,8 @@ import math
 import scipy
 import numpy as np
 import matplotlib.pyplot as plt
-from transformers import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
+from transformers import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel, GPT2Config, AutoTokenizer, AutoModelForCausalLM
+from huggingface_hub import login
 
 from torch import nn
 from torch.nn.utils.rnn import pad_sequence
@@ -265,36 +266,87 @@ def phoneme_eval(model_path, model_type, data_path, ds, args):
     print("Phoneme Error Rate:", cer)
     return
 
-def llm_rescore(nbest, true_transcriptions):
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')  # gpt2-xl
+def llm_rescore(nbest, true_transcriptions, llm_weight):
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', add_bos_token=True, add_eos_token=True)  # gpt2-xl
     model = GPT2LMHeadModel.from_pretrained('gpt2')
 
-    complete_text = "I am a woman and I am "
-    encoded_text = tokenizer(complete_text, return_tensors="np")
+    # login()
+    # "meta-llama/Meta-Llama-3-8B"
+    # "mistralai/Mistral-7B-v0.3"
+    # "google/gemma-7b"
+    # tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", add_bos_token=True, add_eos_token=True, use_fast=False)
+    # model = AutoModelForCausalLM.from_pretrained("microsoft/phi-2")
+
+    # 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
+
+    dec_transcriptions = list()
+
+    # for i in range(len(true_transcriptions)):
+    #     loss_scores = np.zeros(len(nbest[i]))
+    #     log_probs = np.zeros(len(nbest[i]))
+    #
+    #     for j, text in enumerate(nbest[i]):
+#             encoded_text = tokenizer(text, return_tensors="pt")
+#             encoded_tokens = encoded_text['input_ids']
+#             text_loss = model(encoded_tokens, labels=encoded_tokens)[0].item() # Lower loss is better
+#             total_log_prob = 0
+
+#             for k in range(1, len(encoded_text['input_ids'][0])):
+#                 input_ids = torch.tensor(list(encoded_text['input_ids'][0][:k])).unsqueeze(0)
+#                 attention_mask = torch.tensor(list(encoded_text['attention_mask'][0][:k])).unsqueeze(0)
+#                 output_logits = (model(input_ids, attention_mask=attention_mask).logits)[0, -1, :].detach()
+#                 total_log_prob += np.log(scipy.special.softmax(output_logits)[encoded_text['input_ids'][0][k]])
+
+    #             loss_scores[j] = text_loss
+    #             log_probs[j] = total_log_prob
+            
+
+    complete_text = "The boy skipped school."
+    encoded_text = tokenizer(complete_text, return_tensors="pt")
+    encoded_tokens = encoded_text['input_ids']
+    text_loss = model(encoded_tokens, labels=encoded_tokens)[0].item() # Lower loss is better
     total_log_prob = 0
 
-    print(encoded_text['input_ids'].size())
-    for i in range(len(encoded_text['input_ids'])):
-        input_ids = np.array([encoded_text['input_ids'][0][:i]])
-        attention_mask = np.array([encoded_text['attention_mask'][0][:i]])
-        print(input_ids)
-        output = model(input_ids, attention_mask).logits
-        print(output[:, -1, 0])
+    for i in range(1, len(encoded_text['input_ids'][0])):
+        input_ids = torch.tensor(list(encoded_text['input_ids'][0][:i])).unsqueeze(0)
+        attention_mask = torch.tensor(list(encoded_text['attention_mask'][0][:i])).unsqueeze(0)
+        output_logits = (model(input_ids, attention_mask=attention_mask).logits)[0, -1, :].detach()
+        total_log_prob += np.log(scipy.special.softmax(output_logits)[encoded_text['input_ids'][0][i]])
 
-    # encoded_input = tokenizer(text, return_tensors='pt')
-    # output = model(**encoded_input).logits
+    print(text_loss, total_log_prob)
+    return dec_transcriptions
 
-    # print(encoded_input)
-    # print(output.shape)
-    # output[:, -1, :]
-    print(encoded_text)
-    return
+def llm_rescore_context(nbest, true_transcriptions, true_transcriptions_full, llm_weight, context):
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', add_bos_token=True, add_eos_token=True)  # gpt2-xl
+    model = GPT2LMHeadModel.from_pretrained('gpt2')
+
+    dec_transcriptions = list()
+
+    for i in range(context, len(true_transcriptions)):
+        loss_scores = np.zeros(len(nbest[i]))
+        log_probs = np.zeros(len(nbest[i]))
+
+        for j, text in enumerate(nbest[i]):
+            complete_text = " ".join(true_transcriptions_full[i-context:i] + [text])
+            encoded_text = tokenizer(complete_text, return_tensors="pt")
+            encoded_tokens = encoded_text['input_ids']
+            text_loss = model(encoded_tokens, labels=encoded_tokens)[0].item() # Lower loss is better
+            total_log_prob = 0
+
+            for k in range(1, len(encoded_text['input_ids'][0])):
+                input_ids = torch.tensor(list(encoded_text['input_ids'][0][:k])).unsqueeze(0)
+                attention_mask = torch.tensor(list(encoded_text['attention_mask'][0][:k])).unsqueeze(0)
+                output_logits = (model(input_ids, attention_mask=attention_mask).logits)[0, -1, :].detach()
+                total_log_prob += np.log(scipy.special.softmax(output_logits)[encoded_text['input_ids'][0][k]])
+
+            loss_scores[j] = text_loss
+            log_probs[j] = total_log_prob
+
+    return dec_transcriptions
 
 def test():
     with open("src/neural_decoder/ptDecoder_ctc", "rb") as handle:
         loaded_data = pickle.load(handle)
-
-    print(loaded_data["train"][15]['transcriptions'])
 
 # Note: cannot test on "competition" partition
 def main():
@@ -308,7 +360,7 @@ def main():
 
     # test()
 
-    llm_rescore(0, 0)
+    llm_rescore(0, 0, 0)
     return
 
 if __name__ == "__main__":
